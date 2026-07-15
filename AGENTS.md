@@ -6,6 +6,11 @@
 - Do not initialize nested Git repositories under this directory.
 - Keep scoped `.gitignore` files. They are path-local rules, not repository boundaries.
 
+## Problem Explanations
+
+- Whenever diagnosing or fixing any problem, explain all three parts: what the problem is, why it happened, and how to fix it.
+- Distinguish the visible symptom from the verified root cause, and state how to verify that the fix worked.
+
 ## Directory Ownership
 
 - `EnrealEngine/UnrealEngine/` is the Unreal Engine 5.7 source snapshot. Change it only for deliberate engine work.

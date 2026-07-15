@@ -1,5 +1,17 @@
 # Project Agent Rules
 
+## Version Control
+
+- This project is managed by the existing Git repository rooted at `D:/Unreal`; all future work must follow a Git-based workflow.
+- Before changing files, inspect the current branch and working tree, and preserve unrelated user changes.
+- After changing files, review the scoped diff and working-tree status, then run verification appropriate to the change.
+- Do not initialize a nested Git repository. Create branches, stage, commit, or push only when the task requires those actions.
+
+## Development Environment
+
+- The user's IDE is JetBrains Rider, not Visual Studio. Use Rider-oriented instructions, project-opening steps, and debugging workflows by default.
+- Do not assume the Visual Studio IDE is installed or available. Windows Unreal builds may still use the Microsoft C++ compiler and SDK toolchain when required by Unreal Build Tool.
+
 ## Communication
 
 - Default to concise, summary-first responses.
