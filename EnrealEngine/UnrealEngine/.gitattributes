@@ -1,0 +1,35 @@
+#
+# This file contains rules that control how Git handles binary and text files, including line endings
+#
+ 
+
+# Make sure Windows batch files preserve CR/LF line endings, otherwise they may not be able to execute.  Windows
+# batch files require a CR/LF for labels to work properly, otherwise they may fail when labels straddle 512-byte
+# block boundaries.  This is important when files are downloaded through a zip archive that was authored on a
+# Linux machine (the default behavior on GitHub)
+
+*.bat eol=crlf
+*.sh eol=lf
+
+# Enable github syntax highlighting for shader files.
+*.usf linguist-language=HLSL
+*.ush linguist-language=HLSL
+
+# D:/Unreal workspace-local exceptions. These UE 5.7 baseline blobs already
+# carry their intended line endings and must not be renormalized on re-add.
+/Engine/Binaries/ThirdParty/Python3/Linux/lib/python3.11/ctypes/macholib/fetch_macholib.bat -text
+/Engine/Binaries/ThirdParty/Python3/Linux/lib/python3.11/idlelib/idle.bat -text
+/Engine/Extras/ushell/channels/flow/core/system/flow/native/build.bat -text
+/Engine/Extras/ushell/channels/flow/nt/cmd_thefuzz.bat -text
+/Engine/Extras/ushell/channels/unreal/core/pylib/vs/build.bat -text
+/Engine/Source/ThirdParty/FreeType2/FreeType2-2.10.4/builds/unix/ltmain.sh -text
+/Engine/Source/ThirdParty/ICU/icu4c-53_1/Android/ConfigForAndroid-arm64.sh -text
+/Engine/Source/ThirdParty/ICU/icu4c-53_1/Android/ConfigForAndroid-armv7.sh -text
+/Engine/Source/ThirdParty/ICU/icu4c-53_1/Android/ConfigForAndroid-x64.sh -text
+/Engine/Source/ThirdParty/ICU/icu4c-53_1/Android/ConfigForAndroid-x86.sh -text
+/Engine/Source/ThirdParty/ICU/icu4c-53_1/BuildOnLinux.sh -text
+/Engine/Source/ThirdParty/SDL3/SDL-gui-backend/android-project/gradlew.bat -text
+/Engine/Source/ThirdParty/SDL3/SDL-gui-backend/src/render/direct3d/compile_shaders.bat -text
+/Engine/Source/ThirdParty/SDL3/SDL-gui-backend/src/render/direct3d11/compile_shaders.bat -text
+/Engine/Source/ThirdParty/SDL3/SDL-gui-backend/src/render/direct3d12/compile_shaders.bat -text
+/Engine/Source/ThirdParty/jemalloc/build/build.sh -text

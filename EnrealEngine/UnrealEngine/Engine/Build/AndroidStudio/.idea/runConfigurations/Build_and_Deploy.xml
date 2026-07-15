@@ -1,0 +1,6 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Build and Deploy" type="AndroidTestRunConfigurationType" factoryName="Android Instrumented Tests" activateToolWindowBeforeRun="false">
+    <module name="UE" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "UnrealToolbox": {
+      "commandName": "Project",
+      "commandLineArgs": "-NoUpdate"
+    }
+  }
+}

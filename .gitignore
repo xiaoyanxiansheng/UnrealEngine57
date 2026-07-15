@@ -1,0 +1,37 @@
+# Workspace-level ignore rules. Engine-specific rules stay in
+# EnrealEngine/UnrealEngine/.gitignore so their anchored paths remain valid.
+
+# Third-party reference projects
+/Examples/
+
+# Local agent output; skills and instructions remain tracked
+/EnrealEngine/UnrealEngine/.codex/tmp/
+
+# IDE-generated files
+**/.vs/
+**/.idea/
+**/*.suo
+**/*.user
+**/*.DotSettings.user
+
+# Generated files for first-party Unreal projects
+/EnrealEngine/Project/**/Binaries/
+/EnrealEngine/Project/**/DerivedDataCache/
+/EnrealEngine/Project/**/Intermediate/
+/EnrealEngine/Project/**/Saved/
+/EnrealEngine/Project/**/*.sln
+/EnrealEngine/Project/**/*.xcodeproj/
+/EnrealEngine/Project/**/*.xcworkspace/
+/EnrealEngine/Project/**/*.VC.db
+/EnrealEngine/Project/**/*.opensdf
+/EnrealEngine/Project/**/*.sdf
+
+# Locally installed IDE plugin and machine-specific engine configuration
+/EnrealEngine/UnrealEngine/Engine/Plugins/Marketplace/Developer/RiderLink/
+/EnrealEngine/UnrealEngine/Engine/Config/DefaultEngine.ini
+
+# Operating-system artifacts
+.DS_Store
+[Tt]humbs.db
+[Dd]esktop.ini
+/EnrealEngine/nul

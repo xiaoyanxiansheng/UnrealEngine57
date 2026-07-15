@@ -1,0 +1,507 @@
+# 04 Static Mesh 导入与模块化资产
+
+## 本篇结果
+
+把 `M01_RenderingRoom` 的基础 Shape 灰盒替换为第一套可复用建筑模块：
+
+- `SM_Slab_200x200x20`
+- `SM_Wall_200x300x20`
+- `SM_Wall_Door_200x300x20`
+- `SM_Wall_Window_200x300x20`
+
+完成后，房间仍保持约 6 m × 8 m、3 m 层高和原有门窗位置，但几何不再依赖缩放后的 Engine Cube。每个模块拥有明确的源文件、单位、Pivot、法线、UV、材质槽、碰撞和 Reimport 路径。
+
+本篇只建立传统 Static Mesh 资产基线。UE 5.7 的 Interchange 导入管线可能默认勾选 `Build Nanite`，本篇会明确关闭它；第 15 篇再用受控对比启用 Nanite。
+
+## 开始前的工程状态
+
+- 已完成 00–03。
+- `M01_RenderingRoom` 的灰盒房间完整。
+- `Camera_Room_Baseline`、`Light_Room_Baseline` 和 `PPV_Room_Baseline` 已保存。
+- 已有 1920 × 1080 的 `03_Room_CameraExposure.png` 基准图。
+- 可使用任意能稳定导出 FBX 的 DCC。本篇不依赖 Blender、Maya 或 3ds Max 的专有功能。
+
+开始前执行 **File > Save All**，并用固定相机确认画面仍与第 03 篇一致。若当前曝光或构图已改变，先恢复基线再导入资产。
+
+## 1. 理解 Source File、Static Mesh Asset 与场景实例
+
+外部模型进入 UE 后会经过三层：
+
+```text
+DCC Source / FBX
+→ Content 中的 UStaticMesh Asset
+→ Level 中的 StaticMeshActor / StaticMeshComponent 实例
+```
+
+- **FBX** 是交换文件，不参与打包后的实时渲染。
+- **UStaticMesh Asset** 保存导入来源、构建设置、渲染数据、材质槽、碰撞、LOD/Nanite 等资产状态。
+- **Actor 实例** 只引用 Asset，并提供关卡 Transform、可见性和覆盖材质等实例状态。
+
+同一个墙体 Asset 被放置十次，几何资产不需要复制十份；但十个独立 StaticMeshActor 仍然是十个实例，可能产生独立的可见性、场景管理和绘制工作。**资产复用不等于自动合批。** 第 12、13 篇再比较 Draw、ISM/HISM 和 GPUScene。
+
+## 2. 建立外部源资产目录
+
+在 `RenderingPractice.uproject` 同级目录创建：
+
+```text
+SourceAssets/
+└── Architecture/
+    └── RoomKit/
+        ├── DCC/
+        └── Export/
+```
+
+建议保存：
+
+```text
+SourceAssets/Architecture/RoomKit/DCC/RP_RoomKit_v001.<dcc-extension>
+SourceAssets/Architecture/RoomKit/Export/RP_RoomKit_v001.fbx
+```
+
+不要把可编辑 DCC 文件和 FBX 放进 `Content/`。Content 主要管理 UE Asset；源文件放在项目外部目录，可以独立版本化，不会被 Asset Registry 当作运行时内容。
+
+`v001` 用于源文件迭代记录，UE Asset 名称不带版本号。这样 Reimport 后关卡引用仍指向稳定的 `SM_` Asset，而不是每次更新都创建一个新名字。
+
+## 3. 在 DCC 中建立 2 m 模块合同
+
+所有模块使用同一局部坐标约定：
+
+- 尺寸单位：厘米，或在 FBX 中写入正确单位元数据。
+- Z：向上。
+- 墙体宽度沿局部 X，厚度沿局部 Y，高度沿局部 Z。
+- 墙体 Pivot：底边中心，即 `(0, 0, 0)`。
+- Slab Pivot：几何中心。
+- Object Transform：应用/冻结后 Translation `0,0,0`、Rotation `0,0,0`、Scale `1,1,1`。
+- 一个渲染对象对应一个 UE Static Mesh Asset。
+
+创建下列几何：
+
+| 对象名 | 几何范围 | 开口 |
+|---|---|---|
+| `SM_Slab_200x200x20` | X `-100..100`，Y `-100..100`，Z `-10..10` | 无 |
+| `SM_Wall_200x300x20` | X `-100..100`，Y `-10..10`，Z `0..300` | 无 |
+| `SM_Wall_Door_200x300x20` | 同一外轮廓，由左、右、上三段组成 | X `-50..50`，Z `0..210` |
+| `SM_Wall_Window_200x300x20` | 同一外轮廓，由左、右、下、上四段组成 | X `-60..60`，Z `90..210` |
+
+多个对象可以在 DCC 场景原点重叠，因为它们是独立资产，不是用于直接导入为完整关卡的摆放场景。这样即使导入器 Bake Object Transform，各模块的局部原点仍保持可预测。
+
+### 为什么选择 2 m 网格
+
+房间 6 m × 8 m，可以分别由 3 × 4 个模块覆盖；2 m 也是 10 cm 灰盒吸附的整数倍。它让本篇能够用少量资产验证复用、对齐和 Reimport。
+
+2 m 不是所有建筑的最佳模数。真实项目需要根据门窗族、立面节奏、Texel Density、碰撞、遮挡、HLOD 和关卡设计共同决定。第 15 篇扩展为 Building 时应重新评估模块粒度，而不是无限复制这四个教学资产。
+
+## 4. 准备法线、UV 和材质槽
+
+对每个渲染对象执行：
+
+1. 为 90° 建筑边缘设置正确的 Hard Edge / Smoothing。
+2. 导出 Vertex Normals 和 Tangents。
+3. 创建 UV0，保证每个表面有合理、稳定的纹理展开。
+4. 给全部面分配一个占位材质，材质槽命名为 `Surface`。
+5. 在导出前对最终网格进行确定性三角化，或至少在团队中固定同一三角化规则。
+
+本篇选择保留 DCC 法线，而不是让每次导入重新计算。这样法线与硬边属于源资产合同，换机器或 Reimport 时不依赖编辑器构建规则猜测。
+
+替代方案是让 UE 重新计算 Normals/Tangents。它适合没有可靠法线的扫描、程序生成或旧资产，但可能改变硬边、顶点拆分、切线空间和法线贴图结果。若源文件不导出 Tangents，就必须在导入设置中开启 Recompute Tangents，并重新检查所有边界。
+
+只创建一个 `Surface` 槽，是因为材质体系要到第 05 篇才建立。多材质槽会把一个 Mesh 分成多个 Section，通常增加绘制和资产维护成本；应由真实材质边界驱动，不能为了编辑方便任意切分。
+
+## 5. 创建简单碰撞
+
+在同一个 DCC 文件中创建碰撞对象。它们不需要 UV、材质和精细拓扑，但每个 UCX 对象必须是封闭凸体。
+
+使用命名规则：
+
+```text
+UCX_<RenderMeshName>_<Index>
+```
+
+本套资产建议：
+
+```text
+UCX_SM_Slab_200x200x20_00
+UCX_SM_Wall_200x300x20_00
+
+UCX_SM_Wall_Door_200x300x20_00   # 左段
+UCX_SM_Wall_Door_200x300x20_01   # 右段
+UCX_SM_Wall_Door_200x300x20_02   # 上段
+
+UCX_SM_Wall_Window_200x300x20_00 # 左段
+UCX_SM_Wall_Window_200x300x20_01 # 右段
+UCX_SM_Wall_Window_200x300x20_02 # 下段
+UCX_SM_Wall_Window_200x300x20_03 # 上段
+```
+
+门窗不能只用一个包围盒碰撞，否则视觉开口存在，Pawn 和 Trace 却无法穿过。直接使用 Complex Collision 可以贴合渲染三角形，但会增加碰撞数据和查询约束，也不适合所有物理模拟场景。本篇的多块简单凸碰撞更符合模块职责。
+
+渲染 Mesh 与 Collision Mesh 是两份数据。改了窗洞尺寸而不更新 UCX，会出现“看得见开口但过不去”或射线命中空气的问题。
+
+## 6. 导出 FBX
+
+选择四个渲染对象和对应 UCX 对象，导出：
+
+`SourceAssets/Architecture/RoomKit/Export/RP_RoomKit_v001.fbx`
+
+导出时遵守：
+
+- 只导出选中对象。
+- 不导出 Camera、Light、Animation 或 Skeleton。
+- 写入正确的 Up/Forward Axis 与 Scene Unit。
+- 导出 Normals、Tangents、UV 和 Material Assignment。
+- 保持对象名与本篇完全一致。
+- 不在导出器中额外乘一次 `100` 倍缩放。
+
+不同 DCC 的 FBX 面板名称不同，关键不是记住某个软件的预设名，而是让导出的 FBX 满足本篇单位、轴向、对象名和属性合同。第一次导入后必须在 UE 中测量，不能仅凭“DCC 中看起来正确”判断成功。
+
+## 7. 打开 UE 5.7 Interchange 导入
+
+在 Content Drawer 中创建：
+
+`Content/RenderingPractice/Environment/Architecture/RoomKit`
+
+进入该目录，点击 **Import**，选择 `RP_RoomKit_v001.fbx`。也可以把 FBX 拖入 Content Drawer；两种入口都会进入当前 5.7 配置的 FBX/Interchange 管线。
+
+UE 5.7 的 Interchange 对话框可能按 Pipeline 分组显示属性，具体折叠顺序会随编辑器布局和保存的导入预设变化。不要直接接受上一次资产留下的设置，逐组核对本篇值。
+
+## 8. 设置导入管线
+
+### Common
+
+| 属性 | 本篇值 | 原因 |
+|---|---:|---|
+| `Scene Name Subfolder` | Off | 已经进入专用 RoomKit 目录，不再生成额外层级 |
+| `Asset Type Subfolders` | Off | 当前只导入 Static Mesh，避免产生无意义目录 |
+| `Offset Translation` | `0,0,0` | 修正应回到源文件，不在导入层积累隐藏偏移 |
+| `Offset Rotation` | `0,0,0` | 轴向由 FBX 转换负责 |
+| `Offset Uniform Scale` | `1.0` | 单位由 Scene Unit 转换负责，不用经验缩放补救 |
+
+### Common Meshes
+
+| 属性 | 本篇值 | 原因 |
+|---|---:|---|
+| `Force All Meshes As Type` | `Static Mesh` | 本文件是刚性建筑模块，不允许被自动识别为 Skeletal Mesh |
+| `Import LODs` | Off | 源文件没有 LOD；第 12、15 篇再比较 LOD 与 Nanite |
+| `Bake Meshes` | On | 源对象 Transform 已冻结，Bake 不应改变约定原点 |
+| `Keep Sections Separate` | Off | 相同材质不需要被人为拆成多个 Section |
+| `Vertex Color Import Option` | `Ignore` | 本套资产没有 Vertex Color，避免 Reimport 覆盖未来编辑数据 |
+| `Import Sockets` | Off | 建筑壳体当前不需要 Socket |
+| `Recompute Normals` | Off | 使用 DCC 输出的硬边与法线 |
+| `Recompute Tangents` | Off | 使用同一份源切线合同 |
+| `Use High Precision Tangent Basis` | Off | 普通建筑模块先使用默认精度，减少顶点数据 |
+| `Use Full Precision UVs` | Off | 2 m 模块 UV 范围小，默认精度足够 |
+
+如果导入预览报告缺少 Normals/Tangents，不要带着警告继续。回 DCC 修复导出，或明确改为 Recompute 并记录这个资产采用 UE 构建法线的方案。
+
+`Full Precision UVs` 能缓解大范围 UV 或半精度量化造成的接缝，但会增加顶点数据。它是针对实际误差的修复开关，不是所有资产都应打开的“高质量模式”。
+
+### Static Meshes
+
+| 属性 | 本篇值 | 原因 |
+|---|---:|---|
+| `Import Static Meshes` | On | 创建 UStaticMesh Asset |
+| `Combine Static Meshes` | Off | 四个对象必须保持四个可复用模块 |
+| `Import Collisions` | On | 导入 UCX 简单碰撞 |
+| `Import Collisions According To Mesh Name` | On | 让 UCX 前缀绑定对应渲染 Mesh |
+| `One Convex Hull Per UCX` | On | 每个 UCX Box 保持一个凸体，不做额外分解 |
+| `Fallback Collision Type` | `None` | 缺少 UCX 时暴露错误，不自动用包围体封死门窗 |
+| `Build Nanite` | **Off** | 保持传统 Static Mesh 基线，第 15 篇再启用 |
+| `Build Reversed Index Buffer` | Off | 当前模块不需要为镜像 Transform 增加索引数据 |
+| `Generate Lightmap UVs` | On | 从 UV0 生成独立 UV1，保留静态烘焙比较能力 |
+| `Min Lightmap Resolution` | `64` | 给当前小模块提供基础打包 Padding 假设 |
+| `Source Lightmap Index` | `0` | 使用已有 UV0 岛作为生成来源 |
+| `Destination Lightmap Index` | `1` | 不覆盖纹理 UV0 |
+| `Build Scale` | `1,1,1` | 不在构建阶段再次改变单位 |
+
+UE 5.7 当前 Interchange Generic Mesh Pipeline 的源码默认 `Build Nanite = true`。本篇主动关闭，原因不是 Nanite 不适合建筑，而是需要先保存一个传统路径的可比较状态。对于这组极低三角形模块，立即启用 Nanite 也不会自动解决 Actor、材质或像素成本。
+
+生成 Lightmap UV 会增加导入构建时间和一个 UV Channel。课程主要使用动态 UE5 光照，但第 07 篇仍可能比较传统静态方案，因此先保留合法 UV1。如果项目明确禁止 Static Lighting，可以在项目级策略确定后关闭生成，避免无用数据。
+
+### Materials、Textures 与 FBX Translator
+
+设置：
+
+```text
+Import Materials: Off
+Import Textures:  Off
+Convert Scene Unit: On
+```
+
+保持默认 FBX Axis/Coordinate System 转换策略，但必须在导入后验证 Z Up 和墙体正面方向。关闭材质、纹理导入，是为了避免 FBX 占位材质污染第 05 篇要建立的 UE Material 体系；`Surface` Slot 仍应保留，暂时使用默认材质。
+
+点击 **Import**。等待 Mesh 构建、Shader 编译和保存提示结束，不要在导入任务仍运行时开始替换房间。
+
+## 9. 检查导入结果
+
+Content Drawer 中应只有四个新的 Static Mesh Asset，没有自动生成 Material、Texture 或版本子目录。
+
+逐个双击，在 Static Mesh Editor 中检查：
+
+1. **尺寸**：Slab 为 200 × 200 × 20 cm，墙模块为 200 × 20 × 300 cm。
+2. **Pivot**：墙体局部原点位于底边中心；Slab 原点位于几何中心。
+3. **Normals/Tangents**：表面朝向正确，90° 边没有意外渐变或黑缝。
+4. **UV Channels**：UV0 是纹理展开，UV1 是生成的 Lightmap UV；`Light Map Coordinate Index` 应为 `1`，若没有自动设置则手动改为 `1` 并 Apply。
+5. **Material Slots**：只有一个 `Surface`。
+6. **Collision**：开启 **Collision > Simple Collision** 显示，门窗开口必须保持可通行。
+7. **Nanite Settings**：Nanite 未启用。
+8. 保存 Asset，关闭并重新打开，确认 Build Settings 没有未应用修改。
+
+### 用关卡原点验证 Pivot
+
+不要只看 Static Mesh Editor 中的坐标轴：
+
+1. 把一个 `SM_Wall_200x300x20` 拖入 `M01_RenderingRoom`。
+2. 设置 Location `0,0,0`、Rotation `0,0,0`、Scale `1,1,1`。
+3. 在正交视图检查墙底是否正好位于 Z `0`，墙顶是否位于 Z `300`。
+4. 删除这个测试 Actor。
+
+如果尺寸大 100 倍或小 100 倍，先检查 DCC 单位与 `Convert Scene Unit`，不要用 Actor Scale `0.01` 或 `100` 永久补救。错误单位会继续影响碰撞、物理、LOD 屏幕尺寸、距离场、Lumen Card 和模块吸附。
+
+## 10. 处理第一次导入失败
+
+在资产尚未被关卡引用时，修正流程最简单：
+
+1. 记录错误来自单位、轴向、命名、法线、UV 还是碰撞。
+2. 回 DCC 修改源文件并重新导出同一路径。
+3. 在 UE 中右键对应 Asset，选择 **Reimport**。
+4. 如果对象名和资产拆分已完全改变，可以删除这四个未使用 Asset 后重新导入；删除前确认 Reference Viewer 没有关卡引用。
+
+不要同时修改 DCC Scale、FBX Export Scale、UE Offset Uniform Scale 和 Actor Scale。多层补偿可能让结果偶然正确，却使 Reimport、碰撞和其他资产无法共享同一合同。
+
+## 11. 在 Outliner 中保留灰盒回退路径
+
+在 `00_Geometry` 下创建：
+
+```text
+00_Geometry/
+├── 10_ModularRoom
+└── 90_GreyboxBackup
+```
+
+1. 把第 02 篇创建的 Floor、Ceiling 和墙体 Actor 移入 `90_GreyboxBackup`。
+2. 暂时使用 Outliner 眼睛图标隐藏该 Folder。
+3. 对这些 Actor 同时启用 **Actor Hidden In Game**，避免 Play 时与新模块重叠。
+4. 新模块全部放入 `10_ModularRoom`。
+
+Outliner 眼睛主要是编辑器可见性状态，`Actor Hidden In Game` 负责运行时隐藏。两者都不是资产删除，也不会减少地图中保存的 Actor 数据。新房间验收完成后应删除 GreyboxBackup，或把恢复责任交给版本管理，不能让双份几何长期留在正式主地图。
+
+## 12. 铺设 Floor 与 Ceiling
+
+把 `SM_Slab_200x200x20` 拖入关卡，Scale 始终保持 `1,1,1`。使用复制和 200 cm 移动吸附，创建以下组合：
+
+```text
+X = -200, 0, 200
+Y = -300, -100, 100, 300
+```
+
+每个 X/Y 组合放置一个 Floor 和一个 Ceiling：
+
+| 用途 | Z | Rotation |
+|---|---:|---|
+| Floor | `-10` | `0,0,0` |
+| Ceiling | `310` | `0,0,0` |
+
+最终为 12 个 Floor Actor 和 12 个 Ceiling Actor。命名建议包含网格位置，例如：
+
+```text
+Floor_Xm200_Ym300
+Ceiling_X000_Y100
+```
+
+模块名已经说明 Asset 类型；Actor 名更应表达实例位置或语义，不必给每个实例重复 `SM_` 前缀。
+
+相邻 Slab 边界必须落在 200 cm 网格上。若出现细缝，检查 Actor Location 与 Scale，不要把单个模块拉宽填缝，否则它不再能与其他实例共享同一空间合同。
+
+## 13. 铺设四面墙
+
+墙模块 Pivot 在底边中心，因此全部使用 Z `0`、Scale `1,1,1`。
+
+### 后墙
+
+```text
+Asset: SM_Wall_200x300x20
+Y:     390
+X:     -200, 0, 200
+Yaw:   0
+```
+
+### 前墙与门
+
+```text
+SM_Wall_200x300x20:      X -200, Y -390, Yaw 0
+SM_Wall_Door_200x300x20: X    0, Y -390, Yaw 0
+SM_Wall_200x300x20:      X  200, Y -390, Yaw 0
+```
+
+### 左墙
+
+```text
+Asset: SM_Wall_200x300x20
+X:     -290
+Y:     -300, -100, 100, 300
+Yaw:   90
+```
+
+### 右墙与窗
+
+```text
+SM_Wall_200x300x20:        X 290, Y -300, Yaw 90
+SM_Wall_200x300x20:        X 290, Y -100, Yaw 90
+SM_Wall_Window_200x300x20: X 290, Y  100, Yaw 90
+SM_Wall_200x300x20:        X 290, Y  300, Yaw 90
+```
+
+完成后，从固定相机观察，房间总体轮廓、门洞、窗台和层高应与灰盒一致。
+
+### 关于当前墙角重叠
+
+为了严格延续第 02 篇的 600 × 800 cm 外轮廓，本篇的前后墙与侧墙在角部保留少量实体重叠。这不会产生可见开口，但会增加重叠几何和碰撞，并可能在共面表面出现 Z-fighting。
+
+它是当前教学套件的已知限制，不是正式建筑模块的推荐终点。生产套件通常使用 Corner、End Cap、不同长度模块或统一中心线规则消除重叠。第 15 篇把 Room 扩展为 Building 时应修订角部合同，而不是继续扩大这个误差。
+
+## 14. 验证模块替换
+
+保持 `90_GreyboxBackup` 隐藏，依次检查：
+
+- Top、Front、Right 正交视图中所有模块都落在 200 cm 网格或已记录的墙体中心线上。
+- 所有 Actor Scale 为 `1,1,1`。
+- Door 开口约 100 × 210 cm。
+- Window 开口约 120 × 120 cm，窗台约 90 cm。
+- Floor 总范围约 600 × 800 cm。
+- 墙顶 Z 为 300 cm，Ceiling 底面约为 300 cm。
+- Player/Pawn 或 Collision View 中门窗没有被整块碰撞封死。
+- 固定相机的主要轮廓与 `03_Room_CameraExposure.png` 一致。
+
+切换 GreyboxBackup 与 ModularRoom 的可见性进行 A/B 对比时，只允许一组可见。两组同时渲染会出现重叠表面闪烁，得到的性能和画面结果都无效。
+
+## 15. 用固定基线生成模块化截图
+
+恢复第 03 篇条件：
+
+```text
+Camera:             Camera_Room_Baseline
+View Mode:          Lit
+Realtime:           On
+Game View:          On
+Viewport Quality:   Epic
+Material Quality:   High
+Screen Percentage:  100%
+Exposure:           Manual Physical / EV100 5 / Compensation 0
+Baseline Light:     3000 lm
+```
+
+执行：
+
+```text
+HighResShot 1920x1080
+```
+
+将长期参考图保存为：
+
+`SourceAssets/Reference/Baselines/04_Room_Modular.png`
+
+比较 03 与 04：
+
+- 应保持：相机、曝光、灯光、房间尺度、门窗位置和总体构图。
+- 允许变化：模块接缝、法线、碰撞、几何边界和局部明暗。
+- 若整张图亮度显著变化，先检查是否存在重叠几何、翻转法线、相机或曝光改动，而不是把它直接归因于“导入 Mesh 更高级”。
+
+## 16. 完成一次受控 Reimport
+
+为了确认源资产链路可维护：
+
+1. 在 DCC 中给 `SM_Wall_Window_200x300x20` 的可见硬边增加非常小且统一的 Bevel，例如 `1 cm`。
+2. 更新该对象的 Normals/Tangents；保持对象名、Pivot、外轮廓、Material Slot 和 UCX 命名不变。
+3. 覆盖导出同一个 `RP_RoomKit_v001.fbx`。
+4. 在 UE 中右键 `SM_Wall_Window_200x300x20`，选择 **Reimport**。
+5. 等待构建完成，检查关卡中的窗口实例自动更新。
+6. 再次检查尺寸、UV、碰撞、Material Slot 和 Nanite 状态。
+
+Reimport 不是只替换顶点。它可能重新运行 Build Settings，并影响法线、UV、碰撞、Section、LOD 和 Nanite 数据。若 Material Slot 名称或顺序变化，关卡中的 Override Material 也可能错位。因此每次 Reimport 都要按资产风险复核，而不是看到形状更新就结束。
+
+如果不希望把 Bevel 作为正式设计，完成验证后在 DCC 中撤销并再次 Reimport。最终源文件与 UE Asset 必须一致。
+
+## 17. 清理灰盒并保存
+
+模块化房间通过检查后：
+
+1. 删除 `90_GreyboxBackup` 中旧的基础 Shape Actor。
+2. 保留 `SM_Room_Wall_Window` Asset 也可以，因为它记录了第 02 篇 Modeling Tools 结果；但确认正式地图已不再引用它。
+3. 删除失败导入、重复 Material、无用 Texture 和错误尺寸 Asset。
+4. 对 RoomKit 目录执行 **Fix Up Redirectors in Folder**，前提是本篇确实发生过资产移动或重命名。
+5. 执行 **File > Save All**。
+6. 关闭并重新打开工程，确认全部模块、碰撞和引用仍然有效。
+
+Redirector 用于资产移动/重命名后的引用过渡。没有发生路径变化时不需要为了“清理”反复执行；执行前应让 Source Control 能记录引用更新。
+
+## 常见问题
+
+### 四个对象被合并成一个 Asset
+
+通常是 `Combine Static Meshes` 被勾选。关闭后重新导入。已经进入关卡的合并资产不要直接覆盖成四个同名资产，应先清理引用并确认最终路径。
+
+### 导入后大 100 倍或小 100 倍
+
+检查 DCC Scene Unit、FBX Unit Metadata、`Convert Scene Unit` 和 `Offset Uniform Scale`。Actor Scale 应保持 1；不要在四个层级同时补偿。
+
+### 墙体躺在地上或朝向错误
+
+检查 DCC Up/Forward Axis 与 FBX Translator 的坐标转换。修复源文件或统一 Translator 设置后 Reimport，不要给每个 Actor 单独加一个纠错 Rotation。
+
+### Pivot 跑到场景原点
+
+确认对象 Transform 已冻结、每个模块的局部原点正确，并检查 `Bake Meshes` 是否与源文件合同一致。包含复杂父子层级的完整场景导入可能需要另一套 Bake 策略，本篇资产库不保留 DCC 场景层级。
+
+### 门窗看得见但无法穿过
+
+开启 Simple Collision 显示。确认 UCX 名称精确匹配 Render Mesh、每块 UCX 为凸体、Fallback Collision 为 None，并确认没有旧灰盒碰撞仍在关卡中。
+
+### 表面出现黑斑或接缝
+
+检查翻转法线、Hard Edge、Tangents、三角化和非统一 Scale。若改用 Recompute Normals/Tangents，应对四个资产使用一致策略并重新比较法线贴图结果。
+
+### UV1 为空或重叠
+
+确认 `Generate Lightmap UVs` 已开启、Source Index 为 0、Destination Index 为 1，且 UV0 本身包含可重新打包的合法 UV 岛。生成器会重排已有 Chart，但不能替你修复完全无效的源 UV。
+
+### 简单模块导入后却启用了 Nanite
+
+打开 Static Mesh Editor 检查 Nanite Settings。UE 5.7 的当前 Interchange Pipeline 默认可能启用 Build Nanite；本篇必须关闭并 Apply。不要只根据导入窗口记忆判断最终 Asset 状态。
+
+### 重复墙体没有减少 Draw Call
+
+这是预期结果。复用 UStaticMesh 降低的是资产重复与维护成本；独立 StaticMeshActor 不会自动变成一个 ISM/HISM 绘制组。第 12、13 篇会用工具观察并转换重复实例。
+
+## 对渲染、内存与构建的意义
+
+- 统一单位、Pivot 和模数让关卡 Transform 保持简单，减少非统一缩放与拼接误差。
+- 共享 UStaticMesh 避免重复导入同一几何，但每个 Actor 仍有实例与场景管理成本。
+- Normals、Tangents、UV 精度和 Material Section 会直接改变顶点数据、Shader 输入和绘制组织。
+- Simple Collision 与渲染几何分离，能控制物理与 Trace 成本，并保持门窗可通行。
+- Generate Lightmap UVs 增加构建时间和资产数据，为静态光照路径提供 UV1。
+- Nanite、LOD、Distance Field 和 Lumen Cards 都是 Static Mesh 的后续派生数据或设置；源资产合同错误会向这些系统继续传播。
+- Reimport 能让所有引用同一 Asset 的实例一起更新，也会扩大错误修改的影响范围。
+
+## 可选延伸与 UE 5.7 校准锚点
+
+- `RenderingDeep/02_SceneProxy.md`：StaticMeshComponent 如何形成渲染侧表示。
+- `RenderingDeep/07_GPUScene.md`：大量 Primitive/Instance 如何进入 GPUScene。
+- `Engine/Plugins/Interchange/Runtime/Source/Pipelines/Public/InterchangeGenericAssetsPipelineSharedSettings.h`：Bake、Normals、Tangents 和 UV 精度选项。
+- `Engine/Plugins/Interchange/Runtime/Source/Pipelines/Public/InterchangeGenericMeshPipeline.h`：Combine、Collision、Nanite 和 Lightmap UV 默认值与职责。
+- `Engine/Plugins/Interchange/Runtime/Source/Import/Public/Fbx/InterchangeFbxTranslator.h`：FBX Axis 与 Scene Unit 转换。
+
+## 完成后的工程状态
+
+- [ ] `SourceAssets/Architecture/RoomKit` 中保留 DCC 源文件与 FBX
+- [ ] RoomKit 目录中只有四个命名正确的 Static Mesh Asset
+- [ ] 导入尺寸、Pivot、轴向、Normals/Tangents 和 Material Slot 已检查
+- [ ] UV0 与 UV1 有明确职责，Light Map Coordinate Index 为 1
+- [ ] 门窗 Simple Collision 保持开口
+- [ ] Nanite 明确关闭，Actor Scale 全部为 1
+- [ ] 6 m × 8 m 房间已由 2 m 模块重建
+- [ ] 灰盒备份已从正式地图清理
+- [ ] 已完成并复核一次 Reimport
+- [ ] 已生成 `04_Room_Modular.png` 并与 03 基准图比较
+- [ ] 地图和全部 Asset 已 Save All、重启验证
+
+下一篇将在这套模块上建立 Material、Material Instance 与 Master Material 体系，并用固定相机和曝光区分材质参数变化与观察条件变化。

@@ -1,0 +1,89 @@
+name: live_link_vcam
+description: A rebuild of the Live Link VCAM app for Flutter, enabling cross-platform deployment.
+publish_to: 'none'
+
+version: 2.2.1+43891908
+
+environment:
+  sdk: '>=3.1.0 <4.0.0'
+  flutter: "^3.16.3"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_localizations:
+    sdk: flutter
+
+  epic_common:
+    path: ../../Flutter/FlutterCommon
+
+  flutter_tentacle:
+    path: ../../Flutter/FlutterTentacle
+
+  streaming_shared_preferences:
+    path: ../../ThirdPartyNotUE/streaming_shared_preferences
+
+  device_info_plus: ^11.1.0
+  ffi: ^2.1.0
+  flutter_widget_from_html_core: ^0.15.2
+  logging: ^1.2.0
+  ntp: ^2.0.0
+  package_info_plus: ^8.1.0
+  permission_handler: ^11.1.0
+  provider: ^6.1.1
+  system_clock: ^2.0.0
+  web_socket_channel: ^3.0.1
+  share_plus: ^10.1.2
+  url_launcher: ^6.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  arb_generator: 0.0.4
+  pigeon: ^22.6.3
+  flutter_launcher_icons: ^0.14.1
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+  uses-material-design: true
+
+  # Generate localization files
+  generate: true
+
+  assets:
+    - assets/eula.html
+    - assets/icons/
+    - assets/licenses/
+    - assets/licenses/text/
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: packages/epic_common/assets/fonts/Inter-VariableFont_slnt,wght.ttf
+
+    - family: Droid Sans Mono
+      fonts:
+        - asset: packages/epic_common/assets/fonts/DroidSansMono.ttf
+
+# Automatically generate arb localization files from a CSV
+arb_generator:
+  input_filepath: "lib/l10n/l10n.csv"
+  output_directory: "lib/l10n"
+  filename_prepend: "app_"
+  csv_settings:
+    description_index: 1
+    base_index: 2
+
+# Configuration for automatic icon generation.
+# Run `dart run flutter_launcher_icons` from a terminal to generate these.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/app_icon/VCam_Icon_HD.png"

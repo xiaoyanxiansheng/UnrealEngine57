@@ -1,0 +1,7 @@
+arb-dir: lib/src/l10n
+template-arb-file: tentacle_en.arb
+synthetic-package: false
+header-file: generated_header.txt
+output-class: TentacleLocalizations
+output-dir: lib/src/l10n/generated
+output-localization-file: tentacle_localizations.dart

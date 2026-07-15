@@ -1,0 +1,38 @@
+# Copyright 2021-2024, Intel Corporation
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Docs check
+
+permissions: read-all
+
+on:
+  push:
+    paths:
+      - "docs/**"
+  pull_request:
+    paths:
+      - "docs/**"
+  workflow_dispatch:
+
+jobs:
+  linux-build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check environment
+      run: |
+        cat /proc/cpuinfo
+
+    - name: Install dependencies
+      run: |
+        echo "APT::Acquire::Retries \"3\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries
+        sudo apt-get update
+        sudo apt-get install python3-docutils
+
+    - name: Check docs build
+      run: |
+        cd docs
+        ./build.sh
+
